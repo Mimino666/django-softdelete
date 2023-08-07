@@ -104,7 +104,7 @@ class SoftDeleteManager(models.Manager):
             return self._get_base_queryset()
 
     def deleted_set(self):
-        return self._get_base_queryset().filter(deleted_at__isnull=0)
+        return self._get_base_queryset().filter(deleted_at__isnull=False)
 
     def get(self, *args, **kwargs):
         if 'pk' in kwargs:
@@ -255,8 +255,8 @@ class ChangeSet(models.Model):
     record = GenericForeignKey('content_type', 'object_id')
 
     class Meta:
-        index_together = [
-            ("content_type", "object_id"),
+        indexes = [
+            models.Index(fields=["content_type", "object_id"]),
         ]
 
     def get_content(self):
@@ -293,8 +293,8 @@ class SoftDeleteRecord(models.Model):
 
     class Meta:
         unique_together = (('changeset', 'content_type', 'object_id'),)
-        index_together = [
-            ("content_type", "object_id"),
+        indexes = [
+            models.Index(fields=["content_type", "object_id"]),
         ]
 
     def get_content(self):
