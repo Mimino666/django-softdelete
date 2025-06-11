@@ -3,8 +3,8 @@ from __future__ import unicode_literals
 import django
 
 from django.conf import settings
-from django.db.models import query
-from django.db import models
+from django.db.models import query, OneToOneRel
+from django.db import models, transaction
 from django.core.exceptions import ObjectDoesNotExist
 from django.contrib.contenttypes.models import ContentType
 try:
@@ -169,6 +169,7 @@ class SoftDeleteObject(models.Model):
                 except:
                     getattr(self, rel).__class__.objects.all().delete()
 
+    @transaction.atomic
     def delete(self, *args, **kwargs):
         if self.deleted_at:
             # logging.debug("HARD DELETEING type %s, %s", type(self), self)
@@ -193,7 +194,7 @@ class SoftDeleteObject(models.Model):
                 except:
                     pass
         else:
-            using = kwargs.get('using', settings.DATABASES['default'])
+            using = kwargs.get('using', 'default')
             models.signals.pre_delete.send(sender=self.__class__,
                                            instance=self,
                                            using=using)
@@ -211,10 +212,22 @@ class SoftDeleteObject(models.Model):
             all_related = [
                 f for f in self._meta.get_fields()
                 if (f.one_to_many or f.one_to_one)
-                and f.auto_created and not f.concrete
+                   and f.auto_created and not f.concrete
             ]
             for x in all_related:
-                self._do_delete(cs, x)
+                if x.on_delete.__name__ not in ['DO_NOTHING', 'SET_NULL']:
+                    self._do_delete(cs, x)
+                if x.on_delete.__name__ == 'SET_NULL':
+                    related_name = x.get_accessor_name()
+                    if isinstance(x, OneToOneRel):
+                        if getattr(self, related_name, None) is None:
+                            continue
+                        related = getattr(self, related_name)
+                        if isinstance(related, models.Model):
+                            setattr(related, x.remote_field.name, None)
+                            related.save(update_fields=[x.remote_field.name])
+                    else:
+                        getattr(self, related_name).all().update(**{x.remote_field.name: None})
             # logging.debug("FINISHED SOFT DELETING RELATED %s", self)
             models.signals.post_delete.send(sender=self.__class__,
                                             instance=self,
